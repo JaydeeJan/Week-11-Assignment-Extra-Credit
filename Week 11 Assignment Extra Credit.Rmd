@@ -1,0 +1,102 @@
+---
+title: "Week 11 Assignment"
+author: "Jayden Jiang"
+date: "2025-05-17"
+output: html_document
+---
+
+# Library
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+# Introduction 
+
+The Global Baseline Estimate (GBE) is a simple yet powerful non‐personalized recommendation algorithm.  
+Rather than modeling each user’s tastes in detail, GBE predicts every user–item rating \(\hat r_{ui}\) as:
+
+\[
+\hat r_{ui} \;=\; \mu \;+\; b_u \;+\; b_i
+\]
+
+where  
+- \(\mu\) is the **global mean** of all observed ratings,  
+- \(b_u\) is the **user bias** (how much User _u_ tends to rate above or below \(\mu\)),  
+- \(b_i\) is the **item bias** (how much Movie _i_ tends to be rated above or below \(\mu\)).  
+
+Once these components are computed, for each user we recommend the unrated movie with the highest \(\hat r_{ui}\).  
+This approach serves as a strong baseline and can be extended with regularization or further personalization.
+
+# Load & Tidy Data
+```{r}
+ratings_df <- read.csv("https://raw.githubusercontent.com/JaydeeJan/Week-11-Assignment-Extra-Credit/refs/heads/main/MovieRatings1.csv", header = TRUE, stringsAsFactors = FALSE)
+
+ratings_long <- ratings_df %>%
+  pivot_longer(
+    cols = -Critic,
+    names_to = "Movie",
+    values_to = "Rating"
+  ) %>%
+  filter(!is.na(Rating)
+  )
+
+cat("Total ratings:", nrow(ratings_long), "\n")
+cat("Unique critics:", n_distinct(ratings_long$Critic), 
+    " | Unique movies:", n_distinct(ratings_long$Movie), "\n")
+```
+
+# Compute Global Mean μ
+```{r}
+mu <- mean(ratings_long$Rating)
+cat("Global average rating (μ):", round(mu, 3), "\n")
+```
+# Compute User & Item Biases
+```{r}
+b_u <- ratings_long %>%
+  group_by(Critic) %>%
+  summarise(b_u = mean(Rating - mu), .groups = "drop")
+
+b_i <- ratings_long %>%
+  group_by(Movie) %>%
+  summarise(b_i = mean(Rating - mu), .groups = "drop")
+```
+
+
+# Build Prediction Grid & Score All Pairs
+```{r}
+users <- unique(ratings_long$Critic)
+movies <- unique(ratings_long$Movie)
+
+pred_grid <- expand.grid(Critic = users, Movie = movies,
+                         stringsAsFactors = FALSE) %>%
+  left_join(b_u, by = "Critic") %>%
+  left_join(b_i, by = "Movie") %>%
+  mutate(
+    b_u = coalesce(b_u, 0),
+    b_i = coalesce(b_i, 0),
+    pred = mu + b_u + b_i
+  )
+```
+
+
+# Generate Top‐N Recommendation
+```{r}
+recommendations <- pred_grid %>%
+  anti_join(ratings_long, by = c("Critic", "Movie")) %>%
+  group_by(Critic) %>%
+  slice_max(pred, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+print(recommendations)
+```
+
+# Conclusion
+Our analysis of the Global Baseline Estimate for 12 critics highlights three main findings:
+
+**1. "Deadpool" is the top recommendation**, favored by 7 of 12 critics due to its strong positive bias (+0.51). Even critics who typically rate below average (Matt) receive it as their top unrated pick.
+
+**2. Personal bias influences predicted scores.** Critics with high bias (Dan, Xingjia) get the highest predictions (~5.5), while those with negative bias (Param, Vuthy) see scores below the global average (~3.93), guided toward movies like Jungle Book or Star Wars.
+
+**3. Unrated filtering shapes results.** If critics have already rated Deadpool, the algorithm recommends their next best option (Jungle Book), ensuring suggestions align with their viewing history.
+
